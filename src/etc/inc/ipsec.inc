@@ -831,6 +831,11 @@ function ipsec_find_id(& $ph1ent, $side = "local", $rgmap = array()) {
 		case 'asn1dn':
 			$thisid_data = $id_data;
 			break;
+		case 'any':
+			$thisid_data = '%any';
+			break;
+		default:
+			break;
 	}
 	return array($thisid_type, $thisid_data);
 }
@@ -851,7 +856,7 @@ function ipsec_fixup_id($type, $data) {
 	}
 
 	if ($type == 'any') {
-		$idstring = "";
+		$idstring = "%any";
 	} elseif (!in_array($type, $auto_types)) {
 		$idstring = "{$type}:{$data}";
 	} else {
@@ -1436,9 +1441,22 @@ function ipsec_setup_strongswan() {
 		$ssconf['charon']['plugins']['eap-radius']['eap_start'] = "no";
 		/* Activate RADIUS accounting only if it was selected on the IPsec Mobile Clients tab */
 		if ($auth_server && isset($auth_server['radius_acct_port']) &&
-		    (is_array($a_client) && ($a_client['radiusaccounting'] == "enabled"))){
+		    (is_array($a_client) && ($a_client['radiusaccounting'] == "enabled"))) {
 			$ssconf['charon']['plugins']['eap-radius']['accounting'] = "yes";
 			$ssconf['charon']['plugins']['eap-radius']['accounting_close_on_timeout'] = "no";
+		}
+		/* advanced parameters, see https://redmine.pfsense.org/issues/11211 */
+		if (isset($a_client['radius_retransmit_base'])) {
+			$ssconf['charon']['plugins']['eap-radius']['retransmit_base'] = $a_client['radius_retransmit_base'];
+		}
+		if (isset($a_client['radius_retransmit_timeout'])) {
+			$ssconf['charon']['plugins']['eap-radius']['retransmit_timeout'] = $a_client['radius_retransmit_timeout'];
+		}
+		if (isset($a_client['radius_retransmit_tries'])) {
+			$ssconf['charon']['plugins']['eap-radius']['retransmit_tries'] = $a_client['radius_retransmit_tries'];
+		}
+		if (isset($a_client['radius_sockets'])) {
+			$ssconf['charon']['plugins']['eap-radius']['sockets'] = $a_client['radius_sockets'];
 		}
 		$ssconf['charon']['plugins']['eap-radius']['servers'] = $radius_servers;
 	}
@@ -1474,10 +1492,7 @@ function ipsec_setup_pools() {
 	if (!is_array($a_client) || !isset($a_client['enable'])) {
 		return;
 	}
-	if (($mobile_ipsec_auth == "eap-radius") && empty($a_client['pool_address']) &&
-	    empty($a_client['pool_address_v6'])) {
-		return;
-	}
+
 	$scconf['mobile-pool'] = array();
 	$scconf['pools'] = array();
 	$pool_common =& $scconf['mobile-pool'];
@@ -1569,6 +1584,16 @@ function ipsec_setup_pools() {
 		if (!empty($net_list6)) {
 			$v6pool['subnet'] = implode(",", $net_list6);
 			$v6pool['split_include'] = implode(",", $net_list6);
+			unset($net_list6);
+		}
+	}
+	if ($mobile_ipsec_auth == "eap-radius") {
+		$scconf['pools']['radius-pool : mobile-pool'] = array();
+		$radpool =& $scconf['pools']['radius-pool : mobile-pool'];
+		if (!empty($net_list4) || !empty($net_list6)) {
+			$radpool['subnet'] = implode(",", array_merge($net_list4, $net_list6));
+			$radpool['split_include'] = implode(",", array_merge($net_list4, $net_list6));
+			unset($net_list4);
 			unset($net_list6);
 		}
 	}
@@ -1881,6 +1906,9 @@ function ipsec_setup_authentication(& $ph1ent, & $conn) {
 	if (in_array($ph1ent['authentication_method'], array('eap-tls', 'xauth_cert_server', 'cert', 'pkcs11')) &&
 	    isset($cafn)) {
 		$remote['cacerts'] = $cafn;
+		if (isset($config['ipsec']['strictcrlpolicy'])) {
+			$remote['revocation'] = "strict";
+		}
 	}
 
 	$conn['local'] = $local;
@@ -2343,7 +2371,13 @@ function ipsec_setup_tunnels() {
 			if (!isset($ph1ent['mobile']) && (($ikeversion == 1) || isset($ph1ent['splitconn']))) {
 				if (!empty($remote_ts)) {
 					/* Setup child sub-connections using unique names with a suffix */
-					$subconname = "con" . get_ipsecifnum($ph1ent['ikeid'], $idx) . $suffix;
+					if (get_ipsecifnum($ph1ent['ikeid'], $idx)) {
+						$subconnum = get_ipsecifnum($ph1ent['ikeid'], $idx);
+					} else {
+						$subconnum = "{$ph1ent['ikeid']}00000";
+					}
+
+					$subconname = "con" . ($subconnum + $suffix);
 					$children[$subconname] = $child;
 					$children[$subconname]['local_ts'] = $local_ts;
 					$children[$subconname]['remote_ts'] = $remote_ts;
@@ -2373,6 +2407,7 @@ function ipsec_setup_tunnels() {
 		if (isset($ph1ent['mobile'])) {
 			if (($ph1ent['authentication_method'] == 'eap-radius') && 
 			    empty($a_client['pool_address']) && empty($a_client['pool_address_v6'])) {
+				$pools[] = "radius-pool";
 				$pools[] = "radius";
 			} else {
 				if (!empty($a_client['pool_address'])) {
@@ -2386,7 +2421,9 @@ function ipsec_setup_tunnels() {
 				}
 			}
 		}
-		$conn['pools'] = implode(', ', $pools);
+		if (!empty($pools)) {
+			$conn['pools'] = implode(', ', $pools);
+		}
 
 		/* For IKEv2 without Split Connections, setup combined sets of
 		 * local/remote traffic selectors and propsals */
@@ -2459,6 +2496,14 @@ function ipsec_setup_secrets() {
 				continue;
 			}
 
+			if (isset($ph1ent['mobile'])) {
+				if ($ph1ent['authentication_method'] == 'pre_shared_key') {
+					$mobilepsk = true;
+				} elseif ($ph1ent['authentication_method'] == 'eap-mschapv2') {
+					$mobileeap = true;
+				}
+			}
+
 			if (strstr($ph1ent['authentication_method'], 'cert') ||
 			    in_array($ph1ent['authentication_method'], array('eap-mschapv2', 'eap-tls', 'eap-radius'))) {
 				/* Write certificate and private key, point to private key */
@@ -2523,16 +2568,8 @@ function ipsec_setup_secrets() {
 					continue;
 				}
 
-				if ($myid_type == 'fqdn' && !empty($myid)) {
-					$myid = "@{$myid}";
-				}
-
 				$myid = isset($ph1ent['mobile']) ? ipsec_fixup_id($myid_type, trim($myid_data)) : "%any";
 				$peerid = ($peerid_data != 'allusers') ? ipsec_fixup_id($peerid_type, trim($peerid_data)) : '';
-
-				if ($peerid_type == 'fqdn' && !empty($peerid)) {
-					$peerid = "@{$peerid}";
-				}
 
 				if (!empty($ph1ent['pre-shared-key'])) {
 					$scconf['secrets']['ike-' . $suffix++] = array(
@@ -2589,7 +2626,7 @@ function ipsec_setup_secrets() {
 	}
 
 	/* Add user PSKs */
-	if (is_array($config['system']) && is_array($config['system']['user'])) {
+	if ($mobilepsk && is_array($config['system']) && is_array($config['system']['user'])) {
 		foreach ($config['system']['user'] as $user) {
 			if (!empty($user['ipsecpsk'])) {
 				$scconf['secrets']['ike-' . $suffix++] = array(
@@ -2602,18 +2639,21 @@ function ipsec_setup_secrets() {
 		unset($user);
 	}
 
-	/* add PSKs for mobile clients */
+	/* add PSKs/EAPs for mobile clients */
 	if (is_array($ipseccfg['mobilekey'])) {
 		foreach ($ipseccfg['mobilekey'] as $key) {
-			if (($key['ident'] == 'allusers') ||
-			    ($key['ident'] == 'any')) {
-				$key['ident'] = '%any';
+			if (($mobileeap && ($key['type'] == 'EAP')) ||
+			    ($key['type'] == 'PSK')) {
+				if (($key['ident'] == 'allusers') ||
+				    ($key['ident'] == 'any')) {
+					$key['ident'] = '%any';
+				}
+				$userkeyprefix = (strtolower($key['type']) == 'eap') ? 'eap' : 'ike';
+				$scconf['secrets'][$userkeyprefix . '-' . $suffix++] = array(
+					'secret' => '0s' . base64_encode(trim($key['pre-shared-key'])),
+					'id-0' => $key['ident'],
+				);
 			}
-			$userkeyprefix = (strtolower($key['type']) == 'eap') ? 'eap' : 'ike';
-			$scconf['secrets'][$userkeyprefix . '-' . $suffix++] = array(
-				'secret' => '0s' . base64_encode(trim($key['pre-shared-key'])),
-				'id-0' => $key['ident'],
-			);
 		}
 		unset($key);
 	}
@@ -2737,9 +2777,6 @@ function ipsec_configure($restart = false) {
 	if (!empty($config['ipsec']['uniqueids']) &&
 	    array_key_exists($config['ipsec']['uniqueids'], $ipsec_idhandling)) {
 		$conn_defaults['unique'] = $config['ipsec']['uniqueids'];
-	}
-	if (isset($config['ipsec']['strictcrlpolicy'])) {
-		$conn_defaults['strictcrlpolicy'] = "yes";
 	}
 	/* Disable ipcomp for now. redmine #6167
 	if (isset($config['ipsec']['compression'])) {

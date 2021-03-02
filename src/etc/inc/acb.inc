@@ -131,22 +131,6 @@ function acb_custom_php_resync_config_command() {
 	$savemsg .= "A configuration backup has been queued.";
 }
 
-function configure_proxy() {
-	global $config;
-	$ret = array();
-	if (!empty($config['system']['proxyurl'])) {
-		$ret[CURLOPT_PROXY] = $config['system']['proxyurl'];
-		if (!empty($config['system']['proxyport'])) {
-			$ret[CURLOPT_PROXYPORT] = $config['system']['proxyport'];
-		}
-		if (!empty($config['system']['proxyuser']) && !empty($config['system']['proxypass'])) {
-			$ret[CURLOPT_PROXYAUTH] = CURLAUTH_ANY | CURLAUTH_ANYSAFE;
-			$ret[CURLOPT_PROXYUSERPWD] = "{$config['system']['proxyuser']}:{$config['system']['proxypass']}";
-		}
-	}
-	return $ret;
-}
-
 function test_connection($post) {
 	global $savemsg, $config, $g;
 
@@ -183,7 +167,7 @@ function test_connection($post) {
 	curl_setopt($curl_session, CURLOPT_TIMEOUT, 30);
 	curl_setopt($curl_session, CURLOPT_USERAGENT, $g['product_label'] . '/' . rtrim(file_get_contents("/etc/version")));
 	// Proxy
-	curl_setopt_array($curl_session, configure_proxy());
+	set_curlproxy($curl_session);
 
 	curl_setopt($curl_session, CURLOPT_POSTFIELDS, "action=showbackups&hostname={$hostname}");
 	$data = curl_exec($curl_session);
@@ -296,7 +280,7 @@ function upload_config($manual = false) {
 			curl_setopt($curl_session, CURLOPT_TIMEOUT, 30);
 			curl_setopt($curl_session, CURLOPT_USERAGENT, $g['product_label'] . '/' . rtrim(file_get_contents("/etc/version")));
 			// Proxy
-			curl_setopt_array($curl_session, configure_proxy());
+			set_curlproxy($curl_session);
 
 			$data = curl_exec($curl_session);
 
@@ -341,12 +325,13 @@ function upload_config($manual = false) {
 // Create a crontab entry for scheduled backups
 // if frequency == "cron", a new crontab entry is created, otherwise any existing
 // ACB entry is removed
-function setup_ACB($enable, $hint, $frequency, $hours, $month, $day, $dow, $numman, $pwd) {
+function setup_ACB($enable, $hint, $frequency, $minute, $hours, $month, $day, $dow, $numman, $pwd) {
 	global $config;
 
 	$config['system']['acb']['enable'] = $enable;
 	$config['system']['acb']['hint'] = $hint;
 	$config['system']['acb']['frequency'] = $frequency;
+	$config['system']['acb']['minute'] = $minute;
 	$config['system']['acb']['hour'] = $hours;
 	$config['system']['acb']['month'] = $month;
 	$config['system']['acb']['day'] = $day;
@@ -355,7 +340,6 @@ function setup_ACB($enable, $hint, $frequency, $hours, $month, $day, $dow, $numm
 	if (strlen($pwd) >= 8) {
 		$config['system']['acb']['encryption_password'] = $pwd;
 	}
-
 
 	init_config_arr(array('cron'));
 	$a_cron = &$config['cron']['item'];
@@ -377,7 +361,7 @@ function setup_ACB($enable, $hint, $frequency, $hours, $month, $day, $dow, $numm
 
 	if ($frequency == "cron") {
 		$crondef = array();
-		$crondef['minute'] = '0';
+		$crondef['minute'] = $minute;
 		$crondef['hour'] = $hours;
 		$crondef['mday'] = $day;
 		$crondef['month'] = $month;

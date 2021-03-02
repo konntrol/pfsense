@@ -1355,8 +1355,8 @@ function console_configure($when = "save", $path = "") {
 	}
 
 	$console_line = "console\tnone\t\t\t\tunknown\toff\tsecure";
-	$ttyv0_line =
-	    "ttyv0\t\"/usr/libexec/getty {$console_type}\"\txterm\tonifexists secure";
+	$virt_line =
+	    "\"/usr/libexec/getty {$console_type}\"\txterm\tonifexists secure";
 	$ttyu_line =
 	    "\"/usr/libexec/getty {$serial_type}\"\tvt100\t{$on_off}\tsecure";
 
@@ -1370,7 +1370,10 @@ function console_configure($when = "save", $path = "") {
 
 		if (stristr($tty, "ttyv0")) {
 			$found['ttyv0'] = 1;
-			$data[] = $ttyv0_line;
+			$data[] = "ttyv0\t{$virt_line}";
+		} elseif (stristr($tty, "xc0")) {
+			$found['xc0'] = 1;
+			$data[] = "xc0\t{$virt_line}";
 		} elseif (stristr($tty, "ttyu")) {
 			$ttyn = substr($tty, 0, 5);
 			$found[$ttyn] = 1;
@@ -1391,7 +1394,8 @@ function console_configure($when = "save", $path = "") {
 		'ttyu0',
 		'ttyu1',
 		'ttyu2',
-		'ttyu3'
+		'ttyu3',
+		'xc0'
 	);
 
 	foreach ($items as $item) {
@@ -1401,8 +1405,9 @@ function console_configure($when = "save", $path = "") {
 
 		if ($item == 'console') {
 			$data[] = $console_line;
-		} elseif ($item == 'ttyv0') {
-			$data[] = $ttyv0_line;
+		} elseif (($item == 'ttyv0') || ($item == 'xc0')) {
+			/* xc0 - Xen console, see https://redmine.pfsense.org/issues/11402 */
+			$data[] = "{$item}\t{$virt_line}";
 		} else {
 			$data[] = "{$item}\t{$ttyu_line}";
 		}
@@ -2081,16 +2086,7 @@ function download_file($url, $destination, $verify_ssl = true, $connect_timeout 
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_label'] . '/' . $g['product_version']);
 	}
 
-	if (!empty($config['system']['proxyurl'])) {
-		curl_setopt($ch, CURLOPT_PROXY, $config['system']['proxyurl']);
-		if (!empty($config['system']['proxyport'])) {
-			curl_setopt($ch, CURLOPT_PROXYPORT, $config['system']['proxyport']);
-		}
-		if (!empty($config['system']['proxyuser']) && !empty($config['system']['proxypass'])) {
-			@curl_setopt($ch, CURLOPT_PROXYAUTH, CURLAUTH_ANY | CURLAUTH_ANYSAFE);
-			curl_setopt($ch, CURLOPT_PROXYUSERPWD, "{$config['system']['proxyuser']}:{$config['system']['proxypass']}");
-		}
-	}
+	set_curlproxy($ch);
 
 	@curl_exec($ch);
 	$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -2137,16 +2133,7 @@ function download_file_with_progress_bar($url, $destination, $verify_ssl = true,
 		curl_setopt($ch, CURLOPT_USERAGENT, $g['product_label'] . '/' . $g['product_version']);
 	}
 
-	if (!empty($config['system']['proxyurl'])) {
-		curl_setopt($ch, CURLOPT_PROXY, $config['system']['proxyurl']);
-		if (!empty($config['system']['proxyport'])) {
-			curl_setopt($ch, CURLOPT_PROXYPORT, $config['system']['proxyport']);
-		}
-		if (!empty($config['system']['proxyuser']) && !empty($config['system']['proxypass'])) {
-			@curl_setopt($ch, CURLOPT_PROXYAUTH, CURLAUTH_ANY | CURLAUTH_ANYSAFE);
-			curl_setopt($ch, CURLOPT_PROXYUSERPWD, "{$config['system']['proxyuser']}:{$config['system']['proxypass']}");
-		}
-	}
+	set_curlproxy($ch);
 
 	@curl_exec($ch);
 	$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -3604,6 +3591,21 @@ function get_pf_timeouts () {
 		}
 	}
 	return $pftimeout;
+}
+
+function set_curlproxy(&$ch) {
+	global $config;
+
+	if (!empty($config['system']['proxyurl'])) {
+		curl_setopt($ch, CURLOPT_PROXY, $config['system']['proxyurl']);
+		if (!empty($config['system']['proxyport'])) {
+			curl_setopt($ch, CURLOPT_PROXYPORT, $config['system']['proxyport']);
+		}
+		if (!empty($config['system']['proxyuser']) && !empty($config['system']['proxypass'])) {
+			@curl_setopt($ch, CURLOPT_PROXYAUTH, CURLAUTH_ANY | CURLAUTH_ANYSAFE);
+			curl_setopt($ch, CURLOPT_PROXYUSERPWD, "{$config['system']['proxyuser']}:{$config['system']['proxypass']}");
+		}
+	}
 }
 
 ?>

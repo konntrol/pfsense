@@ -2649,7 +2649,9 @@ function route_table() {
 }
 
 /* Get static route for specific destination */
-function route_get($target, $ipprotocol = '') {
+function route_get($target, $ipprotocol = '', $useroute = false) {
+	global $config;
+
 	if (!empty($ipprotocol)) {
 		$family = $ipprotocol;
 	} else if (is_v4($target)) {
@@ -2662,17 +2664,41 @@ function route_get($target, $ipprotocol = '') {
 		return array();
 	}
 
-	$rtable = route_table();
+	if ($useroute) {
+		if ($family == 'inet') {
+			$inet = '4';
+		} else {
+			$inet = '6';
+		}
+		$interface = exec("/sbin/route -n{$inet} get {$target} | /usr/bin/awk '/interface:/{print $2}'");
+		if (empty($interface)) {
+			return array();
+		} elseif ($interface == 'lo0') {
+			// interface assigned IP address
+			foreach ($config['interfaces'] as $intf => $infconf) {
+				if ((($inet == '4') && (get_interface_ip($intf) == $target)) ||
+				    (($inet == '6') && (get_interface_ipv6($intf) == $target))) {
+					$interface = convert_friendly_interface_to_real_interface_name($intf);
+					$gateway = $interface;
+					break;
+				}
+			}
+		} else {
+			$gateway = exec("/sbin/route -n{$inet} get {$target} | /usr/bin/awk '/gateway:/{print $2}'");
+		}
+		$result[] = array('gateway' => $gateway, 'interface-name' => $interface);
+	} else {
+		$rtable = route_table();
+		if (empty($rtable)) {
+			return array();
+		}
 
-	if (empty($rtable)) {
-		return array();
-	}
-
-	$result = array();
-	foreach ($rtable[$family] as $item) {
-		if ($item['destination'] == $target ||
-		    ip_in_subnet($target, $item['destination'])) {
-			$result[] = $item;
+		$result = array();
+		foreach ($rtable[$family] as $item) {
+			if ($item['destination'] == $target ||
+			    ip_in_subnet($target, $item['destination'])) {
+				$result[] = $item;
+			}
 		}
 	}
 
@@ -2686,7 +2712,7 @@ function route_get_default($ipprotocol) {
 		return '';
 	}
 
-	$route = route_get('default', $ipprotocol);
+	$route = route_get('default', $ipprotocol, true);
 
 	if (empty($route)) {
 		return '';
@@ -2803,7 +2829,7 @@ function route_add_or_change($target, $gw, $iface = '', $args = '',
 
 	$params = '';
 	if (!empty($iface) && does_interface_exist($iface)) {
-		$params .= " -iface {$gw}";
+		$params .= " -iface {$iface}";
 	}
 	if (is_ipaddr($gw)) {
 		$params .= " " . $gw;
@@ -3372,7 +3398,8 @@ function parse_cisco_acl_rule($rule, $devname, $dir, $proto) {
 	if (trim($rule[$index]) == "host") {
 		$index++;
 		if ((is_ipaddrv4(trim($rule[$index])) && ($proto == "inet")) ||
-		    (is_ipaddrv6(trim($rule[$index])) && ($proto == "inet6"))) {
+		    (is_ipaddrv6(trim($rule[$index])) && ($proto == "inet6")) ||
+		    (trim($rule[$index]) == "{clientip}")) {
 			$tmprule .= "from {$rule[$index]} ";
 			$index++;
 		} else {
@@ -3396,7 +3423,7 @@ function parse_cisco_acl_rule($rule, $devname, $dir, $proto) {
 				syslog(LOG_WARNING, "Error parsing rule {$rule_orig}: Invalid source netmask '$netmask'.");
 				return;
 			}
-			$tmprule .= "from {$network}/{$netmask}";
+			$tmprule .= "from {$network}/{$netmask} ";
 		} else {
 			syslog(LOG_WARNING, "Error parsing rule {$rule_orig}: Invalid source network '$network'.");
 			return;
@@ -3447,7 +3474,8 @@ function parse_cisco_acl_rule($rule, $devname, $dir, $proto) {
 	if (trim($rule[$index]) == "host") {
 		$index++;
 		if ((is_ipaddrv4(trim($rule[$index])) && ($proto == "inet")) ||
-		    (is_ipaddrv6(trim($rule[$index])) && ($proto == "inet6"))) {
+		    (is_ipaddrv6(trim($rule[$index])) && ($proto == "inet6")) ||
+		    (trim($rule[$index]) == "{clientip}")) {
 			$tmprule .= "to {$rule[$index]} ";
 			$index++;
 		} else {
@@ -3471,7 +3499,7 @@ function parse_cisco_acl_rule($rule, $devname, $dir, $proto) {
 				syslog(LOG_WARNING, "Error parsing rule {$rule_orig}: Invalid destination network '$network'.");
 				return;
 			}
-			$tmprule .= "to {$network}/{$netmask}";
+			$tmprule .= "to {$network}/{$netmask} ";
 		} else {
 			syslog(LOG_WARNING, "Error parsing rule {$rule_orig}: Invalid destination network '$network'.");
 			return;

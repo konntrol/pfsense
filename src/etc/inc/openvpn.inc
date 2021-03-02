@@ -494,7 +494,7 @@ function openvpn_validate_curve($curve) {
 /* Obtain the list of digest algorithms supported by openssl and their alternate names */
 function openvpn_get_openssldigestmappings() {
 	$digests = array();
-	$digest_out = shell_exec('/usr/bin/openssl list-message-digest-algorithms | /usr/bin/grep "=>"');
+	$digest_out = shell_exec('/usr/bin/openssl list -digest-algorithms | /usr/bin/grep "=>"');
 	$digest_lines = explode("\n", trim($digest_out));
 	sort($digest_lines);
 	foreach ($digest_lines as $line) {
@@ -901,7 +901,11 @@ function openvpn_reconfigure($mode, $settings) {
 	$conf .= "persist-key\n";
 	$conf .= "proto {$proto}\n";
 	$conf .= "auth {$digest}\n";
-	$conf .= "up /usr/local/sbin/ovpn-linkup\n";
+	if ($settings['dns_add']) {
+		$conf .= "up /usr/local/sbin/ovpn-dnslinkup\n";
+	} else {
+		$conf .= "up /usr/local/sbin/ovpn-linkup\n";
+	}
 	$conf .= "down /usr/local/sbin/ovpn-linkdown\n";
 	if (file_exists("/usr/local/sbin/openvpn.attributes.sh")) {
 		switch ($settings['mode']) {
@@ -1384,11 +1388,6 @@ function openvpn_reconfigure($mode, $settings) {
 
 	// New client features
 	if ($mode == "client") {
-		// Dont pull routes checkbox
-		if ($settings['route_no_pull']) {
-			$conf .= "route-nopull\n";
-		}
-
 		// Dont add/remove routes checkbox
 		if ($settings['route_no_exec']) {
 			$conf .= "route-noexec\n";
@@ -1419,6 +1418,12 @@ function openvpn_reconfigure($mode, $settings) {
 	}
 
 	openvpn_add_custom($settings, $conf);
+
+	/* add nopull option after custom options, see https://redmine.pfsense.org/issues/11448 */
+	if (($mode == "client") && $settings['route_no_pull']) {
+		// Dont pull routes checkbox
+		$conf .= "route-nopull\n";
+	}
 
 	openvpn_create_dirs();
 	$fpath = "{$g['openvpn_base']}/{$mode_id}/config.ovpn";
@@ -1832,6 +1837,7 @@ function openvpn_get_server_status($server, $socket) {
 				$conn['user_name'] = $list[9];
 				$conn['client_id'] = $list[10];
 				$conn['peer_id'] = $list[11];
+				$conn['cipher'] = $list[12];
 				$server['conns'][] = $conn;
 			}
 			/* parse routing table lines */
