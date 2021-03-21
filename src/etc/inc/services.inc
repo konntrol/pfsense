@@ -173,7 +173,7 @@ function services_radvd_configure($blacklist = array()) {
 				break;
 		}
 		$radvdconf .= "\tprefix {$subnetv6}/{$ifcfgsnv6} {\n";
-		if ($racarpif == true) {
+		if ($racarpif == true || $rasrcaddr) {
 			$radvdconf .= "\t\tDeprecatePrefix off;\n";
 		} else {
 			$radvdconf .= "\t\tDeprecatePrefix on;\n";
@@ -2152,6 +2152,7 @@ function services_dyndns_configure($int = "") {
 				$dyndns['curl_ipresolve_v4'] = isset($dyndns['curl_ipresolve_v4']);
 				$dyndns['curl_ssl_verifypeer'] = isset($dyndns['curl_ssl_verifypeer']);
 				$dyndns['proxied'] = isset($dyndns['proxied']);
+				$dyndns['wildcard'] = isset($dyndns['wildcard']);
 				services_dyndns_configure_client($dyndns);
 				sleep(1);
 			}

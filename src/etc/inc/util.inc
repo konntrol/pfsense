@@ -680,6 +680,15 @@ function is_ipaddrv6($ipaddr) {
 	return Net_IPv6::checkIPv6($ipaddr);
 }
 
+function is_ipaddrv6_v4map($ipaddr) {
+	/* check RFC4291 par 2.2.2 format, ex: fd00::1.2.3.4
+	 * see https://redmine.pfsense.org/issues/11446 */
+	if (is_ipaddrv6($ipaddr) && preg_match('/^[0-9a-f:]{2,30}[0-9.]{7,15}$/i', $ipaddr)) {
+		return true;
+	}
+	return false;
+}
+
 /* returns true if $ipaddr is a valid dotted IPv4 address */
 function is_ipaddrv4($ipaddr) {
 	if (!is_string($ipaddr) || empty($ipaddr) || ip2long($ipaddr) === FALSE) {
@@ -2382,7 +2391,7 @@ function is_interface_mismatch() {
 		foreach ($config['interfaces'] as $ifname => $ifcfg) {
 			if (interface_is_vlan($ifcfg['if']) != NULL ||
 			    interface_is_qinq($ifcfg['if']) != NULL ||
-			    preg_match("/^enc|^cua|^tun|^tap|^l2tp|^pptp|^ppp|^ovpn|^ipsec|^gif|^gre|^lagg|^bridge|vlan|^wg|_wlan|_\d{0,4}_\d{0,4}$/i", $ifcfg['if'])) {
+			    preg_match("/^enc|^cua|^tun|^tap|^l2tp|^pptp|^ppp|^ovpn|^ipsec|^gif|^gre|^lagg|^bridge|vlan|_wlan|_\d{0,4}_\d{0,4}$/i", $ifcfg['if'])) {
 				// Do not check these interfaces.
 				$i++;
 				continue;
@@ -2670,7 +2679,7 @@ function route_get($target, $ipprotocol = '', $useroute = false) {
 		} else {
 			$inet = '6';
 		}
-		$interface = exec("/sbin/route -n{$inet} get {$target} | /usr/bin/awk '/interface:/{print $2}'");
+		$interface = exec("/sbin/route -n{$inet} get {$target} 2>/dev/null | /usr/bin/awk '/interface:/{print $2}'");
 		if (empty($interface)) {
 			return array();
 		} elseif ($interface == 'lo0') {
@@ -2684,7 +2693,11 @@ function route_get($target, $ipprotocol = '', $useroute = false) {
 				}
 			}
 		} else {
-			$gateway = exec("/sbin/route -n{$inet} get {$target} | /usr/bin/awk '/gateway:/{print $2}'");
+			$gateway = exec("/sbin/route -n{$inet} get {$target} 2>/dev/null | /usr/bin/awk '/gateway:/{print $2}'");
+			if (!$gateway) {
+				// non-local gateway
+				$gateway = get_interface_mac($interface);
+			}
 		}
 		$result[] = array('gateway' => $gateway, 'interface-name' => $interface);
 	} else {
@@ -2738,7 +2751,7 @@ function route_del($target, $ipprotocol = '') {
 		return false;
 	}
 
-	$route = route_get($target, $ipprotocol);
+	$route = route_get($target, $ipprotocol, true);
 
 	if (empty($route)) {
 		return;
@@ -2810,7 +2823,8 @@ function route_add_or_change($target, $gw, $iface = '', $args = '',
 		return false;
 	}
 
-	if (is_subnet($target)) {
+	/* use '-host' for IPv6 /128 routes, see https://redmine.pfsense.org/issues/11594 */
+	if (is_subnetv4($target) || (is_subnetv6($target) && (subnet_size($target) > 1))) {
 		$target_prefix = '-net';
 	} else if (is_ipaddr($target)) {
 		$target_prefix = '-host';
@@ -3634,4 +3648,94 @@ function alias_idn_to_ascii($alias) {
 	}
 }
 
+// These funtions were in guiconfig.inc but have been moved here so non GUI processes can use them
+function address_to_pconfig($adr, &$padr, &$pmask, &$pnot, &$pbeginport, &$pendport) {
+	if (isset($adr['any'])) {
+		$padr = "any";
+	} else if ($adr['network']) {
+		$padr = $adr['network'];
+	} else if ($adr['address']) {
+		list($padr, $pmask) = explode("/", $adr['address']);
+		if (!$pmask) {
+			if (is_ipaddrv6($padr)) {
+				$pmask = 128;
+			} else {
+				$pmask = 32;
+			}
+		}
+	}
+
+	if (isset($adr['not'])) {
+		$pnot = 1;
+	} else {
+		$pnot = 0;
+	}
+
+	if ($adr['port']) {
+		list($pbeginport, $pendport) = explode("-", $adr['port']);
+		if (!$pendport) {
+			$pendport = $pbeginport;
+		}
+	} else if (!is_alias($pbeginport) && !is_alias($pendport)) {
+		$pbeginport = "any";
+		$pendport = "any";
+	}
+}
+
+function pconfig_to_address(&$adr, $padr, $pmask, $pnot = false, $pbeginport = 0, $pendport = 0) {
+	$adr = array();
+
+	if ($padr == "any") {
+		$adr['any'] = true;
+	} else if (is_specialnet($padr)) {
+		$adr['network'] = $padr;
+	} else {
+		$adr['address'] = $padr;
+		if (is_ipaddrv6($padr)) {
+			if ($pmask != 128) {
+				$adr['address'] .= "/" . $pmask;
+			}
+		} else {
+			if ($pmask != 32) {
+				$adr['address'] .= "/" . $pmask;
+			}
+		}
+	}
+
+	if ($pnot) {
+		$adr['not'] = true;
+	} else {
+		unset($adr['not']);
+	}
+
+	if (($pbeginport != 0) && ($pbeginport != "any")) {
+		if ($pbeginport != $pendport) {
+			$adr['port'] = $pbeginport . "-" . $pendport;
+		} else {
+			$adr['port'] = $pbeginport;
+		}
+	}
+
+	/*
+	 * If the port is still unset, then it must not be numeric, but could
+	 * be an alias or a well-known/registered service.
+	 * See https://redmine.pfsense.org/issues/8410
+	 */
+	if (!isset($adr['port']) && is_port_or_alias($pbeginport)) {
+		$adr['port'] = $pbeginport;
+	}
+}
+
+function is_specialnet($net) {
+	global $specialsrcdst;
+
+	if (!$net) {
+		return false;
+	}
+	if (in_array($net, $specialsrcdst)) {
+		return true;
+	} else {
+		return false;
+	}
+}
 ?>
