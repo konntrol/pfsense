@@ -26,7 +26,6 @@ require_once("interfaces.inc");
 require_once("util.inc");
 require_once("pfsense-utils.inc");
 require_once("ipsec.inc");
-require_once("wg.inc");
 require_once("filter.inc");
 require_once("itemid.inc");
 
@@ -303,14 +302,16 @@ function saveNATrule($post, $id, $json = false) {
 	if ($post['src']) {
 		$post['src'] = trim($post['src']);
 	}
+
 	if ($post['dst']) {
 		$post['dst'] = trim($post['dst']);
 	}
+
 	if ($post['localip']) {
 		$post['localip'] = trim($post['localip']);
 	}
 
-	if (!array_key_exists($post['interface'], create_interface_list())) {
+	if (!array_key_exists($post['interface'], create_interface_list($json))) {
 		$input_errors[] = gettext("The submitted interface does not exist.");
 	}
 
@@ -880,10 +881,6 @@ function MVC_create_interface_list() {
 	// add openvpn/tun interfaces
 	if ($config['openvpn']["openvpn-server"] || $config['openvpn']["openvpn-client"]) {
 		$iflist["openvpn"] = gettext("OpenVPN");
-	}
-
-	if (is_wg_enabled()) {
-		$iflist['wireguard'] = 'WireGuard';
 	}
 
 	return($iflist);
