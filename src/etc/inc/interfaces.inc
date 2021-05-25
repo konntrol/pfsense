@@ -124,7 +124,11 @@ function does_vip_exist($vip) {
 	$ifacedata = pfSense_getall_interface_addresses($realif);
 
 	if (is_subnetv6("{$vip['subnet']}/{$vip['subnet_bits']}")) {
-		$comparevip = text_to_compressed_ip6("{$vip['subnet']}/{$vip['subnet_bits']}");
+		$comparevip = text_to_compressed_ip6($vip['subnet']);
+		if (is_linklocal($vip['subnet'])) {
+			$comparevip .= "%{$realif}";
+		}
+		$comparevip .= "/{$vip['subnet_bits']}";
 	} else {
 		$comparevip = "{$vip['subnet']}/{$vip['subnet_bits']}";
 	}
@@ -1451,13 +1455,9 @@ function ipsec_create_vtimap($ikeid, $idx) {
 	$assigned = array_column($config['ipsec']['vtimaps']['item'], 'ifnum');
 	asort($assigned, SORT_NUMERIC);
 	$new = 1;
-	foreach($assigned as $ipsecifnum) {
+	foreach ($assigned as $ipsecifnum) {
 		if ($ipsecifnum != $new) {
-			return array(
-				"reqid" => $ikeid,
-				"index" => $idx,
-				"ifnum" => $new
-			);
+			break;
 		}
 		if ($new++ > 32767) {
 			log_error(gettext("All 32767 ipsec interface numbers " .
@@ -1465,6 +1465,11 @@ function ipsec_create_vtimap($ikeid, $idx) {
 			return(NULL);
 		}
 	}
+	return array(
+		"reqid" => $ikeid,
+		"index" => $idx,
+		"ifnum" => $new
+	);
 }
 
 function ipsec_del_vtimap($phase2) {
@@ -1752,7 +1757,7 @@ function interfaces_configure() {
 
 	interfaces_qinq_configure();
 
-	$iflist = get_configured_interface_with_descr(true);
+	$iflist = get_configured_interface_with_descr();
 	$delayed_list = array();
 	$bridge_list = array();
 	$track6_list = array();
@@ -1766,9 +1771,7 @@ function interfaces_configure() {
 
 	foreach ($iflist as $if => $ifname) {
 		$realif = $config['interfaces'][$if]['if'];
-		if (!isset($config['interfaces'][$if]['enable'])) {
-			interface_bring_down($if, true);
-		} elseif (strstr($realif, "bridge")) {
+		if (strstr($realif, "bridge")) {
 			$bridge_list[$if] = $ifname;
 		} elseif (strstr($realif, "gre")) {
 			$delayed_list[$if] = $ifname;
@@ -2282,8 +2285,8 @@ function handle_pppoe_reset($post_array) {
 	}
 	$item = array();
 	if (isset($post_array['pppoe-reset-type']) && $post_array['pppoe-reset-type'] == "custom") {
-		$item['minute'] = $post_array['pppoe_resetminute'];
-		$item['hour'] = $post_array['pppoe_resethour'];
+		$item['minute'] = $post_array['pppoe_resetminute'] ? $post_array['pppoe_resetminute'] : "*";
+		$item['hour'] = $post_array['pppoe_resethour'] ? $post_array['pppoe_resethour'] : "*";
 		if (isset($post_array['pppoe_resetdate']) && $post_array['pppoe_resetdate'] <> "") {
 			$date = explode("/", $post_array['pppoe_resetdate']);
 			$item['mday'] = $date[1];
@@ -5272,7 +5275,11 @@ function DHCP6_Config_File_Advanced($interface, $wancfg, $wanif) {
 		$information_only = "\tinformation-only;\n";
 	}
 
-	$script = "\tscript \"{$g['varetc_path']}/dhcp6c_{$interface}_script.sh\";\n";
+	if (isset($wancfg['dhcp6withoutra'])) {
+		$script = "\tscript \"{$g['varetc_path']}/dhcp6c_{$interface}_dhcp6withoutra_script.sh\";\n";
+	} else {
+		$script = "\tscript \"{$g['varetc_path']}/dhcp6c_{$interface}_script.sh\";\n";
+	}
 	if ($wancfg['adv_dhcp6_interface_statement_script'] != '') {
 		$script = "\tscript \"{$wancfg['adv_dhcp6_interface_statement_script']}\";\n";
 	}

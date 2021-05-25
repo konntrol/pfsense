@@ -2169,8 +2169,7 @@ function filter_nat_rules_generate() {
 		if (is_array($config['ipsec']['phase2'])) {
 			foreach ($config['ipsec']['phase2'] as $ph2ent) {
 				if ($ph2ent['mode'] != 'transport' && !empty($ph2ent['natlocalid']) && !isset($ph2ent['disabled'])) {
-					ipsec_lookup_phase1($ph2ent, $ph1ent);
-					if (!is_array($ph1ent)) {
+					if (!ipsec_lookup_phase1($ph2ent, $ph1ent)) {
 						continue;
 					}
 					if (isset($ph1ent['disabled'])) {
@@ -2937,7 +2936,11 @@ function filter_generate_user_rule($rule) {
 			if (!empty($ifliste)) {
 				$aline['interface'] = " on { {$ifliste} } ";
 			} else {
-				$aline['interface'] = "";
+				/* This rule specifies interface(s), but none of those were
+				 * found in the enabled list, so just ignore the rule.
+				 * See https://redmine.pfsense.org/issues/11688.
+				 */
+				return "# rule " . $rule['descr'] . " has no enabled interfaces";
 			}
 		} else {
 			$aline['interface'] = "";
@@ -3393,7 +3396,7 @@ function filter_generate_user_rule($rule) {
 function filter_rules_generate() {
 	global $config, $g, $FilterIflist, $time_based_rules, $GatewaysList,
 	       $tracker, $vlanprio_values, $antilockout_tracker,
-	       $bogons_tracker, $rfc1918_tracker;
+	       $bogons_tracker, $rfc1918_tracker, $vpn_and_ppp_ifs;
 
 	$fix_rule_label = 'fix_rule_label';
 	$increment_tracker = 'filter_rule_tracker';
@@ -3967,7 +3970,6 @@ EOD;
 		$rule_arr1 = array();
 		$rule_arr2 = array();
 		$rule_arr3 = array();
-		$vpn_and_ppp_ifs = array("l2tp", "pptp", "pppoe", "enc0", "openvpn");
 		/*
 		 * NB: The order must be: Floating rules, then interface group and then regular ones.
 		 */

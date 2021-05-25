@@ -1022,7 +1022,7 @@ function openvpn_reconfigure($mode, $settings) {
 					if ($settings['dev_mode'] == 'tun') {
 						$conf .= "ifconfig-ipv6 {$ipv6_1} {$ipv6_2}\n";
 					} else {
-						$conf .= "ifconfig-ipv6 {$ipv6_1} {$prefix}\n";
+						$conf .= "ifconfig-ipv6 {$ipv6_1}/{$prefix} {$ipv6_2}\n";
 					}
 				}
 				break;
@@ -1191,7 +1191,7 @@ function openvpn_reconfigure($mode, $settings) {
 			if ($settings['dev_mode'] == 'tun') {
 				$conf .= "ifconfig-ipv6 {$ipv6_2} {$ipv6_1}\n";
 			} else {
-				$conf .= "ifconfig-ipv6 {$ipv6_2} {$prefix}\n";
+				$conf .= "ifconfig-ipv6 {$ipv6_1}/{$prefix} {$ipv6_2}\n";
 			}
 		}
 
@@ -1488,9 +1488,22 @@ function openvpn_restart($mode, $settings) {
 	}
 
 	/* Do not start an instance if we are not CARP master on this vip! */
-	if (strstr($settings['interface'], "_vip") && !in_array(get_carp_interface_status($settings['interface']), array("MASTER", ""))) {
-		unlock($lockhandle);
-		return;
+	if (strstr($settings['interface'], "_vip")) {
+	       	$carpstatus = get_carp_interface_status($settings['interface']);
+		if (in_array($carpstatus, array('BACKUP', 'INIT'))) {
+			unlock($lockhandle);
+			return;
+		} elseif (empty($carpstatus)) {
+			/* Do not start an instance if vip aliased to BACKUP CARP
+			 * see https://redmine.pfsense.org/issues/11793 */ 
+			foreach ($config['virtualip']['vip'] as $vip) {
+				if (($settings['interface'] == "_vip{$vip['uniqid']}") &&
+				    in_array(get_carp_interface_status($vip['interface']), array("BACKUP", "INIT"))) {
+					unlock($lockhandle);
+					return;
+				}
+			}
+		}
 	}
 
 	/* Check if client is bound to a gateway group */

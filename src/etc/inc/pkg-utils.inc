@@ -24,6 +24,7 @@
 
 require_once("globals.inc");
 require_once("service-utils.inc");
+require_once("/usr/local/www/includes/functions.inc.php");
 
 if (file_exists("/cf/conf/use_xmlreader")) {
 	require_once("xmlreader.inc");
@@ -1575,38 +1576,39 @@ function update_repos() {
 			$platformname = $platform['descr'];
 		}
 
-		/* XXX: Use json_encode instead of hardcode it */
-		$version =
-		    "{\"platform\":\"" . $platformname .
-		    "\",\"os\":\"" . $os .
-		    "\",\"osver\":\"" . $osver .
-		    "\",\"prod\":\"" . $g['product_label'] .
-		    "\",\"ver\":\"" . $g['product_version_string'] .
-		    "\",\"ed\":\"" . $ed .
-		    "\",\"pkgs\":[";
-
-		$first = true;
-
-		foreach($pkglist as $pkg) {
-			if (!$first) {
-				$version .= ",";
-			}
-
-			$version .= "{\"name\":\"" . $pkg['shortname'] .
-			    "\",\"ver\":\"" . $pkg['version'] . "\"}";
-			$first = false;
-		}
-
-		$version .= "]}";
-
 		$arch =  php_uname('m');
 		$locale = $config['system']['language'];
+
+		// Find root file system type
+		$filesystems = get_mounted_filesystems();
+		$fstype = "";
+
+		foreach ($filesystems as $fs)  {
+		   if ($fs['mountpoint'] == "/") {
+		      $fstype = strtoupper($fs['type']);
+		      break;
+		   }
+		}
+
+		$va = array();
+		$va['platform'] = $platformname;
+		$va['os'] = $os;
+		$va['osver'] = $platformname;
+		$va['fstype'] = $fstype;
+		$va['prod'] = $g['product_label'];
+		$va['ver'] = $g['product_version_string'];
+		$va['ed'] = $ed;
+		$va['pkgs'] = array();
+
+		foreach($pkglist as $pkg) {
+			$va['pkgs'][] = array('name' => $pkg['shortname'], 'ver' => $pkg['version']);
+		}
 
 		$post = [
 		    'uid' => $nid,
 		    'language' => $locale,
 		    'serial' => $serial,
-		    'version' => $version,
+		    'version' => json_encode($va),
 		    'arch' => $arch
 		];
 

@@ -2854,8 +2854,9 @@ function route_add_or_change($target, $gw, $iface = '', $args = '',
 	}
 	if (is_ipaddr($gw)) {
 		/* set correct linklocal gateway address,
-		 * see https://redmine.pfsense.org/issues/11713 */
-		if (is_linklocal($gw) && empty(get_ll_scope($gw))) {
+		 * see https://redmine.pfsense.org/issues/11713 
+		 * and https://redmine.pfsense.org/issues/11806 */
+		if (is_ipaddrv6($gw) && is_linklocal($gw) && empty(get_ll_scope($gw))) {
 			$routeget = route_get($gw, 'inet6', true);
 			$gw .= "%" . $routeget[0]['interface-name'];
 		}
@@ -2894,15 +2895,15 @@ function set_ipv6routes_mtu($interface, $mtu) {
 	$a_staticroutes = get_staticroutes(false, false, true);
 	foreach ($a_gateways as $gate) {
 		foreach ($a_staticroutes as $sroute) {
-			if ($gate['interface'] == $interface &&
-			    $sroute['gateway'] == $gate['name']) {
+			if (($gate['interface'] == $interface) &&
+			    ($sroute['gateway'] == $gate['name'])) {
 				$tgt = $sroute['network'];
 				$gateway = $gate['gateway'];
 				$ipv6mturoutes[$tgt] = $gateway;
 			}
 		}
-		if ($gate['interface'] == $interface &&
-		    $gate['isdefaultgw']) {
+		if (($gate['interface'] == $interface) &&
+		    $gate['isdefaultgw'] && is_ipaddrv6($gate['gateway'])) {
 			$tgt = "default";
 			$gateway = $gate['gateway'];
 			$ipv6mturoutes[$tgt] = $gateway;
@@ -3749,4 +3750,27 @@ function is_specialnet($net) {
 		return false;
 	}
 }
+
+function is_interface_ipaddr($interface) {
+	global $config;
+
+	if (is_array($config['interfaces'][$interface]) &&
+	    isset($config['interfaces'][$interface]['ipaddr']) &&
+	    !empty($config['interfaces'][$interface]['ipaddr'])) {
+		return true;
+	}
+	return false;
+}
+
+function is_interface_ipaddrv6($interface) {
+	global $config;
+
+	if (is_array($config['interfaces'][$interface]) &&
+	    isset($config['interfaces'][$interface]['ipaddrv6']) &&
+	    !empty($config['interfaces'][$interface]['ipaddrv6'])) {
+		return true;
+	}
+	return false;
+}
+
 ?>

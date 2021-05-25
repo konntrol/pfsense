@@ -497,7 +497,7 @@ function ipsec_idinfo_to_text(& $idinfo) {
 /*
  * Return phase1 association for phase2
  */
-function ipsec_lookup_phase1(& $ph2ent, & $ph1ent) {
+function ipsec_lookup_phase1($ph2ent, &$ph1ent) {
 	global $config;
 
 	if (!is_array($config['ipsec'])) {
@@ -513,7 +513,7 @@ function ipsec_lookup_phase1(& $ph2ent, & $ph1ent) {
 	foreach ($config['ipsec']['phase1'] as $ph1tmp) {
 		if ($ph1tmp['ikeid'] == $ph2ent['ikeid']) {
 			$ph1ent = $ph1tmp;
-			return $ph1ent;
+			return true;
 		}
 	}
 
@@ -523,13 +523,11 @@ function ipsec_lookup_phase1(& $ph2ent, & $ph1ent) {
 /*
  * Check phase1 communications status
  */
-function ipsec_phase1_status(&$ipsec_status, $ikeid) {
+function ipsec_phase1_status($ipsec_status, $ikeid) {
 
 	foreach ($ipsec_status as $ike) {
-		if ($ike['id'] == $ikeid) {
-			if ($ike['status'] == 'established') {
-				return true;
-			}
+		if ($ike['id'] == $ikeid && $ike['status'] == 'established') {
+			return true;
 		}
 	}
 
@@ -539,9 +537,9 @@ function ipsec_phase1_status(&$ipsec_status, $ikeid) {
 /*
  * Check phase2 communications status
  */
-function ipsec_phase2_status(&$ipsec_status, &$phase2) {
+function ipsec_phase2_status($ipsec_status, $phase2) {
 
-	if (ipsec_lookup_phase1($ph2ent, $ph1ent)) {
+	if (ipsec_lookup_phase1($phase2, $ph1ent)) {
 		return ipsec_phase1_status($ipsec_status, $ph1ent['ikeid']);
 	}
 
@@ -964,7 +962,7 @@ function ipsec_vti($ph1ent, $returnaddresses = false, $skipdisabled = true) {
 					'descr' => $ph2ent['descr'],
 				);
 			}
-			if (!$skipdisabled && isset($ph2ent['disabled'])) {
+			if ($skipdisabled && isset($ph2ent['disabled'])) {
 				continue;
 			} else {
 				$is_vti = true;
@@ -1506,6 +1504,10 @@ function ipsec_setup_pools() {
 	if (!is_array($a_client) || !isset($a_client['enable'])) {
 		return;
 	}
+	if (($mobile_ipsec_auth == "eap-radius") && empty($a_client['pool_address']) &&
+	    empty($a_client['pool_address_v6'])) {
+		return;
+	}
 
 	/* Keep the comment in the array to ensure the entry makes it into the
 	 * config in all cases.
@@ -1601,19 +1603,6 @@ function ipsec_setup_pools() {
 		if (!empty($net_list6)) {
 			$v6pool['subnet'] = implode(",", $net_list6);
 			$v6pool['split_include'] = implode(",", $net_list6);
-			unset($net_list6);
-		}
-	}
-	if ($mobile_ipsec_auth == "eap-radius") {
-		/* Keep the comment in the array to ensure the entry makes it into the
-		 * config in all cases.
-		 * See https://redmine.pfsense.org/issues/11891 */
-		$scconf['pools']['radius-pool : mobile-pool'] = array("# RADIUS pool settings");
-		$radpool =& $scconf['pools']['radius-pool : mobile-pool'];
-		if (!empty($net_list4) || !empty($net_list6)) {
-			$radpool['subnet'] = implode(",", array_merge($net_list4, $net_list6));
-			$radpool['split_include'] = implode(",", array_merge($net_list4, $net_list6));
-			unset($net_list4);
 			unset($net_list6);
 		}
 	}
@@ -2432,7 +2421,6 @@ function ipsec_setup_tunnels() {
 		if (isset($ph1ent['mobile'])) {
 			if (($ph1ent['authentication_method'] == 'eap-radius') && 
 			    empty($a_client['pool_address']) && empty($a_client['pool_address_v6'])) {
-				$pools[] = "radius-pool";
 				$pools[] = "radius";
 			} else {
 				if (!empty($a_client['pool_address'])) {
