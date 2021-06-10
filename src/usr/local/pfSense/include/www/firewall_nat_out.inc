@@ -38,7 +38,7 @@ function saveNAToutMode($post, $json = false) {
 	if (!isset($config['nat']['outbound']['mode'])) {
 		$config['nat']['outbound']['mode'] = "automatic";
 	}
-	
+
 	$mode = $config['nat']['outbound']['mode'];
 
 	/* mutually exclusive settings - if user wants advanced NAT, we don't generate automatic rules */
@@ -107,10 +107,6 @@ function saveoutNATrule($post, $id, $json = false) {
 	init_config_arr(array('nat', 'outbound', 'rule'));
 	$a_out = &$config['nat']['outbound']['rule'];
 
-	if (isset($post['after'])) {
-		$after = $post['after'];
-	}
-
 	if ($post['destination_type'] == "any") {
 		$post['destination'] = "any";
 		$post['destination_subnet'] = 24;
@@ -146,9 +142,7 @@ function saveoutNATrule($post, $id, $json = false) {
 	$reqdfields = explode(" ", "interface protocol source source_subnet destination destination_subnet");
 	$reqdfieldsn = array(gettext("Interface"), gettext("Protocol"), gettext("Source"), gettext("Source bit count"), gettext("Destination"), gettext("Destination bit count"));
 
-	if (!$json) {
-		do_input_validation($post, $reqdfields, $reqdfieldsn, $input_errors);
-	}
+	do_input_validation($post, $reqdfields, $reqdfieldsn, $input_errors);
 
 	$protocol_uses_ports = in_array($post['protocol'], explode(" ", "any tcp udp tcp/udp"));
 
@@ -322,7 +316,7 @@ function saveoutNATrule($post, $id, $json = false) {
 		} else {
 			unset($natent['ipprotocol']);
 		}
-		
+
 		if ($post['protocol'] && $post['protocol'] != "any") {
 			$natent['protocol'] = $post['protocol'];
 		} else {
@@ -378,11 +372,11 @@ function saveoutNATrule($post, $id, $json = false) {
 		if (write_config(gettext("Firewall: NAT: Outbound - saved/edited outbound NAT mapping.")) && !$json) {
 			mark_subsystem_dirty('natconf');
 		}
-	}
 
-	$rv = array();
-	$rv['input_errors'] = $input_errors;
-	$rv['pconfig'] = $pconfig;
+		$rv = array();
+		$rv['input_errors'] = $input_errors;
+		$rv['pconfig'] = $pconfig;
+	}
 
 	return $json ? json_encode($rv) : $rv;
 }
@@ -400,11 +394,11 @@ function getoutNATrule($id, $json = false) {
 		if (isset($a_out[$id]['created']) && is_array($a_out[$id]['created'])) {
 			$pconfig['created'] = $a_out[$id]['created'];
 		}
-	
+
 		if (isset($a_out[$id]['updated']) && is_array($a_out[$id]['updated'])) {
 			$pconfig['updated'] = $a_out[$id]['updated'];
 		}
-	
+
 		$pconfig['ipprotocol'] = $a_out[$id]['ipprotocol'];
 		$pconfig['protocol'] = $a_out[$id]['protocol'];
 		list($pconfig['source'], $pconfig['source_subnet']) = explode('/', $a_out[$id]['source']['network']);
@@ -415,7 +409,7 @@ function getoutNATrule($id, $json = false) {
 		address_to_pconfig($a_out[$id]['destination'], $pconfig['destination'],
 			$pconfig['destination_subnet'], $pconfig['destination_not'],
 			$none, $none);
-	
+
 		$pconfig['dstport'] = $a_out[$id]['dstport'];
 		$pconfig['natport'] = $a_out[$id]['natport'];
 		$pconfig['target'] = $a_out[$id]['target'];
@@ -432,17 +426,17 @@ function getoutNATrule($id, $json = false) {
 			}
 			$pconfig['target'] = $target_type . $pconfig['target'];
 		}
-	
+
 		$pconfig['targetip'] = $a_out[$id]['targetip'];
 		$pconfig['targetip_subnet'] = $a_out[$id]['targetip_subnet'];
 		$pconfig['poolopts'] = $a_out[$id]['poolopts'];
 		$pconfig['source_hash_key'] = $a_out[$id]['source_hash_key'];
 		$pconfig['interface'] = $a_out[$id]['interface'];
-	
+
 		if (!$pconfig['interface']) {
 			$pconfig['interface'] = "wan";
 		}
-	
+
 		$pconfig['descr'] = $a_out[$id]['descr'];
 		$pconfig['nonat'] = $a_out[$id]['nonat'];
 		$pconfig['disabled'] = isset($a_out[$id]['disabled']);
@@ -480,9 +474,6 @@ function toggleoutNATrule($post, $json = false) {
 	if (!$json) {
 		header("Location: firewall_nat_out.php");
 		exit;
-	} else {
-		$a_out = &$config['nat']['outbound'];
-		return isset($a_out['rule'][$post['id']]['disabled']) ? "disabled":"enabled";
 	}
 }
 
@@ -526,7 +517,7 @@ function deleteoutNATrule($post, $json = false) {
 }
 
 // Re-order the NPtNAT rules per the array of iindicies passed in $post
-function outNATrulesreorder($post, $json = false) {
+function reorderoutNATrules($post, $json = false) {
 	global $config;
 
 	if (is_array($post['rule']) && !empty($post['rule'])) {
@@ -622,22 +613,5 @@ function build_target_list() {
 	$list['Oother-subnet'] = gettext('Other Subnet (Enter Below)');
 
 	return($list);
-}
-
-function getAutoRules($json = false) {
-	global $FilterIflist;
-	global $GatewaysList;
-
-	if (empty($FilterIflist)) {
-		filter_generate_optcfg_array();
-	}
-
-	if (empty($GatewaysList)) {
-		filter_generate_gateways();
-	}
-
-	$automatic_rules = filter_nat_rules_outbound_automatic(implode(" ", filter_nat_rules_automatic_tonathosts()));
-
-	return $json ? json_encode($automatic_rules) : $automatic_rules;
 }
 ?>
