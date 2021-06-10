@@ -45,20 +45,13 @@ function get_must_be_both_text() {
 	return(" " . gettext("They must be either both IPv4 or both IPv6 addresses."));
 }
 
-$specialsrcdst = explode(" ", "any pptp pppoe l2tp openvpn");
-$ifdisp = get_configured_interface_with_descr();
-
-foreach ($ifdisp as $kif => $kdescr) {
-	$specialsrcdst[] = "{$kif}";
-	$specialsrcdst[] = "{$kif}ip";
-}
-
 if (isset($_REQUEST['id']) && is_numericint($_REQUEST['id'])) {
 	$id = $_REQUEST['id'];
 }
 
 if (isset($_REQUEST['after'])) {
 	$after = $_REQUEST['after'];
+	$_POST['after'] = $after;
 }
 
 if (isset($_REQUEST['dup'])) {

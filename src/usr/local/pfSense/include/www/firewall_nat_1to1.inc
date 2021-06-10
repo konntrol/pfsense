@@ -28,11 +28,22 @@ require_once("pfsense-utils.inc");
 require_once("ipsec.inc");
 require_once("filter.inc");
 
+$specialsrcdst = explode(" ", "any pptp pppoe l2tp openvpn");
+$ifdisp = get_configured_interface_with_descr();
+foreach ($ifdisp as $kif => $kdescr) {
+	$specialsrcdst[] = "{$kif}";
+	$specialsrcdst[] = "{$kif}ip";
+}
+
 function save1to1NATrule($post, $id, $json = false) {
 	global $config, $vpn_and_ppp_ifs;
 
 	init_config_arr(array('nat', 'onetoone'));
 	$a_1to1 = &$config['nat']['onetoone'];
+
+	if (isset($post['after'])) {
+		$after = $post['after'];
+	}
 
 	/*	run through $post items encoding HTML entities so that the user
 	 *	cannot think he is slick and perform a XSS attack on the unwilling
@@ -69,7 +80,9 @@ function save1to1NATrule($post, $id, $json = false) {
 		$reqdfieldsn[] = gettext("Destination address");
 	}
 
-	do_input_validation($post, $reqdfields, $reqdfieldsn, $input_errors);
+	if (!$json) {
+		do_input_validation($post, $reqdfields, $reqdfieldsn, $input_errors);
+	}
 
 	if ($post['external']) {
 		$post['external'] = trim($post['external']);
@@ -283,6 +296,9 @@ function toggle1to1NATrule($post, $json = false) {
 	if (!$json) {
 		header("Location: firewall_nat_1to1.php");
 		exit;
+	} else {
+		$a_1to1 = &$config['nat']['onetoone'];
+		return isset($a_1to1[$post['id']]['disabled']) ? "disabled":"enabled";
 	}
 }
 
