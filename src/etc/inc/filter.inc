@@ -621,15 +621,33 @@ function filter_generate_scrubing() {
 	global $config, $FilterIflist;
 	$scrubrules = "";
 
-	if (isset($config['system']['maxmss_enable'])) {
-		$maxmss = 1400;
-		if (!empty($config['system']['maxmss'])) {
-			$maxmss = $config['system']['maxmss'];
-		}
-
-		$scrubrules .= "scrub from any to <vpn_networks> max-mss {$maxmss}\n";
-		$scrubrules .= "scrub from <vpn_networks> to any max-mss {$maxmss}\n";
+	/* see https://redmine.pfsense.org/issues/7801 */
+	if (isset($config['system']['vpn_scrubnodf'])) {
+		$scrubnodf = "no-df";
+	} else {
+		$scrubnodf = "";
 	}
+	if (isset($config['system']['vpn_fragment_reassemble'])) {
+		$fragreassemble = "fragment reassemble";
+	} else {
+		$fragreassemble = "";
+	}
+
+	if (isset($config['system']['maxmss_enable'])) {
+		$mmss = 1400;
+		if (!empty($config['system']['maxmss'])) {
+			$mmss = $config['system']['maxmss'];
+		}
+		$maxmss = "max-mss {$mmss}";
+	} else {
+		$maxmss = "";
+	}
+
+	if (!empty($scrubnodf) || !empty($fragreassemble) || !empty($maxmss)) {
+		$scrubrules .= "scrub from any to <vpn_networks> {$maxmss} {$scrubnodf} {$fragreassemble}\n";
+		$scrubrules .= "scrub from <vpn_networks> to any {$maxmss} {$scrubnodf} {$fragreassemble}\n";
+	}
+
 	/* disable scrub option */
 	foreach ($FilterIflist as $scrubif => $scrubcfg) {
 		if (isset($scrubcfg['virtual']) || empty($scrubcfg['descr'])) {
@@ -886,7 +904,7 @@ function filter_generate_aliases() {
 			case "urltable_ports":
 				// TODO: Change it when pf supports tables with ports
 				$urlfn = alias_expand_urltable($aliased['name']);
-				if ($urlfn) {
+				if ($urlfn && !empty(trim(file_get_contents($urlfn)))) {
 					$ports_tmp = parse_aliases_file($urlfn, "urltable_ports", "-1", false);
 					$aliases .= "{$aliased['name']} = \"{ " . preg_replace("/\n/", " ", implode("\n", $ports_tmp)) . " }\"\n";
 				}
@@ -2019,6 +2037,9 @@ EOD;
 function filter_nat_rules_generate() {
 	global $config, $g, $after_filter_configure_run, $FilterIflist, $GatewaysList, $aliases;
 
+	init_config_arr(array('ipsec', 'client'));
+	$ipsec_client = $config['ipsec']['client'];
+
 	$natrules = "no nat proto carp\n";
 	$natrules .= "no rdr proto carp\n";
 	$natrules .= "nat-anchor \"natearly/*\"\n";
@@ -2202,7 +2223,11 @@ function filter_nat_rules_generate() {
 						$ph2ent['remoteid'] = array();
 					}
 					$ph2ent['remoteid']['mode'] = $ph2ent['mode'];
-					$remote_subnet = ipsec_idinfo_to_cidr($ph2ent['remoteid']);
+					if (!isset($ph2ent['mobile'])) {
+						$remote_subnet = ipsec_idinfo_to_cidr($ph2ent['remoteid']);
+					} elseif (!empty($ipsec_client['pool_address'])) {
+						$remote_subnet = "{$ipsec_client['pool_address']}/{$ipsec_client['pool_netbits']}";
+					}
 					if (empty($remote_subnet)) {
 						continue;
 					}
@@ -3352,7 +3377,7 @@ function filter_generate_user_rule($rule) {
 			if ($sched['name'] == $rule['sched']) {
 				if (!filter_get_time_based_rule_status($sched)) {
 					if (!isset($config['system']['schedule_states'])) {
-						mwexec("/sbin/pfctl -k s:{$sched['schedlabel']}");
+						mwexec("/sbin/pfctl -k label -k s:{$sched['schedlabel']}");
 					}
 					return "# schedule finished - {$rule['descr']}";
 				} else if ($g['debug']) {

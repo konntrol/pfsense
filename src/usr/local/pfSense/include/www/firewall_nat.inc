@@ -350,11 +350,29 @@ function saveNATrule($post, $id, $json = false) {
 	if ($post['srcendport'] && !is_port_or_alias($post['srcendport'])) {
 		$input_errors[] = sprintf(gettext("%s is not a valid end source port. It must be a port alias or integer between 1 and 65535."), $post['srcendport']);
 	}
+	if ($post['srcbeginport'] && $post['srcendport']) {
+		if (is_port($post['srcbeginport']) && is_alias($post['srcendport']) ||
+		    (is_alias($post['srcbeginport']) && is_port($post['srcendport']))) { 
+			$input_errors[] = gettext("Source port range From/To values must a port number or alias, but not both.");
+		} elseif (is_alias($post['srcbeginport']) && is_alias($post['srcendport']) &&
+		    ($post['srcbeginport'] != $post['srcendport'])) {
+			$input_errors[] = gettext("The 'From' alias of the Source port range must be equal to the 'To' alias.");
+		}
+	}
 	if ($post['dstbeginport'] && !is_port_or_alias($post['dstbeginport'])) {
 		$input_errors[] = sprintf(gettext("%s is not a valid start destination port. It must be a port alias or integer between 1 and 65535."), $post['dstbeginport']);
 	}
 	if ($post['dstendport'] && !is_port_or_alias($post['dstendport'])) {
 		$input_errors[] = sprintf(gettext("%s is not a valid end destination port. It must be a port alias or integer between 1 and 65535."), $post['dstendport']);
+	}
+	if ($post['dstbeginport'] && $post['dstendport']) {
+		if (is_port($post['dstbeginport']) && is_alias($post['dstendport']) ||
+		    (is_alias($post['dstbeginport']) && is_port($post['dstendport']))) { 
+			$input_errors[] = gettext("Destination port range From/To values must a port number or alias, but not both.");
+		} elseif (is_alias($post['dstbeginport']) && is_alias($post['dstendport']) &&
+		    ($post['dstbeginport'] != $post['dstendport'])) {
+			$input_errors[] = gettext("The 'From' alias of the Destination port range must be equal to the 'To' alias.");
+		}
 	}
 
 	if ((strtoupper($post['proto']) == "TCP" || strtoupper($post['proto']) == "UDP" || strtoupper($post['proto']) == "TCP/UDP") && (!isset($post['nordr']) && !is_port_or_alias($post['localbeginport']))) {
@@ -427,10 +445,16 @@ function saveNATrule($post, $id, $json = false) {
 		if ($natent['interface'] != $post['interface']) {
 			continue;
 		}
-		if ($natent['destination']['address'] != $post['dst']) {
+ 		if ((($post['srctype'] == "network") && ($natent['source']['address'] != ($post['src'] . $post['srcmask']))) ||
+			(($post['srctype'] != "network") && ($natent['source']['address'] != $post['src']))) {
 			continue;
 		}
-		if (($natent['proto'] != $post['proto']) && ($natent['proto'] != "tcp/udp") && ($post['proto'] != "tcp/udp")) {
+		if ((($post['dsttype'] == "network") && ($natent['destination']['address'] != ($post['dst'] . $post['dstmask']))) ||
+		    (($post['dsttype'] != "network") && ($natent['destination']['address'] != $post['dst']))) {
+			continue;
+		}
+		if (($natent['protocol'] != $post['proto']) &&
+		    (strtoupper($natent['protocol']) != "TCP/UDP") && (strtoupper($post['proto']) != "TCP/UDP")) {
 			continue;
 		}
 

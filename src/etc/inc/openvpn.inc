@@ -1134,6 +1134,10 @@ function openvpn_reconfigure($mode, $settings) {
 		    isset($settings['duplicate_cn'])) {
 			$conf .= "duplicate-cn\n";
 		}
+		if (($settings['mode'] != 'p2p_shared_key') &&
+		    isset($settings['remote_cert_tls'])) {
+			$conf .= "remote-cert-tls client\n";
+		}
 	}
 
 	// client specific settings
@@ -1225,6 +1229,11 @@ function openvpn_reconfigure($mode, $settings) {
 				file_put_contents("{$g['openvpn_base']}/{$mode_id}/proxy_auth", $proxypas);
 			}
 			$conf .= " \n";
+		}
+
+		if (($settings['mode'] != 'shared_key') &&
+		    isset($settings['remote_cert_tls'])) {
+			$conf .= "remote-cert-tls server\n";
 		}
 	}
 
@@ -1489,21 +1498,13 @@ function openvpn_restart($mode, $settings) {
 
 	/* Do not start an instance if we are not CARP master on this vip! */
 	if (strstr($settings['interface'], "_vip")) {
-	       	$carpstatus = get_carp_interface_status($settings['interface']);
+	       	$carpstatus = get_carp_bind_status($settings['interface']);
+		/* Do not start an instance if vip aliased to BACKUP CARP
+		 * see https://redmine.pfsense.org/issues/11793 */ 
 		if (in_array($carpstatus, array('BACKUP', 'INIT'))) {
 			unlock($lockhandle);
 			return;
-		} elseif (empty($carpstatus)) {
-			/* Do not start an instance if vip aliased to BACKUP CARP
-			 * see https://redmine.pfsense.org/issues/11793 */ 
-			foreach ($config['virtualip']['vip'] as $vip) {
-				if (($settings['interface'] == "_vip{$vip['uniqid']}") &&
-				    in_array(get_carp_interface_status($vip['interface']), array("BACKUP", "INIT"))) {
-					unlock($lockhandle);
-					return;
-				}
-			}
-		}
+		} 
 	}
 
 	/* Check if client is bound to a gateway group */
@@ -1741,6 +1742,11 @@ function openvpn_resync_all($interface = "") {
 
 	openvpn_resync_csc_all();
 
+	/* configure OpenVPN-parent QinQ interfaces after creating OpenVPN interfaces
+	 * see https://redmine.pfsense.org/issues/11662 */
+	if (platform_booting()) {
+		interfaces_qinq_configure(true);
+	}
 }
 
 // Resync and restart all VPNs using a gateway group.

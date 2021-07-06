@@ -759,6 +759,21 @@ function get_carp_interface_status($carpid) {
 	return "";
 }
 
+function get_carp_bind_status($interface) {
+	global $config;
+
+	$carpstatus = get_carp_interface_status($interface);
+	if (!empty($carpstatus)) {
+		return $carpstatus;
+	} else {
+		foreach ($config['virtualip']['vip'] as $vip) {
+			if ($interface == "_vip{$vip['uniqid']}") { 
+				return get_carp_interface_status($vip['interface']);
+			}
+		}
+	}
+}
+
 /*
  * Return true if the CARP status of at least one interface of a captive portal zone is in backup mode
  * This function return false if CARP is not enabled on any interface of the captive portal zone
@@ -1197,7 +1212,7 @@ function load_loader_conf($loader_conf = NULL, $local = false) {
 	if (!$local) {
 		/* These values should only be filtered in loader.conf, not .local */
 		$remove = array_merge($remove,
-		    array("autoboot_delay", "console", "comconsole_speed",
+		    array("autoboot_delay", "console", "comconsole_speed", "comconsole_port",
 		    "boot_multicons", "boot_serial", "hint.uart.0.flags",
 		    "hint.uart.1.flags"));
 	}
